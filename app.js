@@ -7,6 +7,8 @@ const mongoose = require("mongoose");
 const session = require('express-session');
 const passport = require("passport");
 const passportLocalMongoose = require("passport-local-mongoose");
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const findOrCreate = require("mongoose-findorcreate");
 
 
 const app = express();
@@ -31,6 +33,16 @@ app.use(session({
 app.use(passport.initialize()); //tells app to init passport
 app.use(passport.session()); //tells app to use passport to setup session
 
+// passport.serializeUser(function(user, done) {
+//   done(null, user.id);
+// });
+//
+// passport.deserializeUser(function(id, done) {
+//   User.findById(id, function(err, user) {
+//     done(err, user);
+//   });
+// });
+
 
 mongoose.connect("mongodb://localhost:27017/userDB", {
   useNewUrlParser: true,
@@ -39,11 +51,16 @@ mongoose.connect("mongodb://localhost:27017/userDB", {
 mongoose.set("useCreateIndex", true);
 
 const userSchema = new mongoose.Schema({
-  email: String,
-  password: String
+  username: { type: String, unique: true }, // values: email address, googleId, facebookId
+  password: String,
+  provider: String, // values: 'local', 'google', 'facebook'
+  email: String
 });
 
-userSchema.plugin(passportLocalMongoose); //will hash and salt passwords and save users in db
+userSchema.plugin(passportLocalMongoose, {
+  usernameField: "username"
+});
+userSchema.plugin(findOrCreate); //calls findOrCreate function via plugin
 
 const User = new mongoose.model("User", userSchema);
 
@@ -52,9 +69,53 @@ passport.use(User.createStrategy());
 passport.serializeUser(User.serializeUser());
 passport.deserializeUser(User.deserializeUser());
 
+// SECTION 3: Google Strategy
+passport.use(new GoogleStrategy({
+       clientID: process.env.CLIENT_ID,
+       clientSecret: process.env.CLIENT_SECRET,
+       callbackURL: "http://localhost:3000/auth/google/secrets",
+       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo"
+   },
+   function (accessToken, refreshToken, profile, cb) {
+console.log(profile);
+
+       User.findOrCreate( //findOrCreate is a Passport pseudocode
+         { username: profile.id },
+         {
+           provider: "google",
+           email: profile._json.email
+         },
+         function (err, user) {
+             return cb(err, user);
+         }
+       );
+   }
+));
+
 app.get('/', (req, res) => {
   res.render('home');
 });
+
+app.get('/auth/google',
+    passport.authenticate('google', {
+        scope: ['profile', 'email']
+    })
+);
+
+app.get('/auth/google/secrets',
+  passport.authenticate('google', { failureRedirect: '/login' }),
+  function(req, res) {
+    // Successful authentication, redirect to secrets.
+    res.redirect('/secrets');
+  });
+
+// SECTION 6: /auth/facebook GET route
+app.get("/auth/facebook",
+    passport.authenticate("facebook", {
+      scope: ["email"]
+    })
+);
+
 
 app.get('/login', (req, res) => {
   res.render('login');
