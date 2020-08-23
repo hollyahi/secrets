@@ -9,6 +9,7 @@ const passport = require("passport");
 const passportLocalMongoose = require("passport-local-mongoose");
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const findOrCreate = require("mongoose-findorcreate");
+// const FacebookStrategy = require('passport-facebook').Strategy;
 
 
 const app = express();
@@ -54,7 +55,8 @@ const userSchema = new mongoose.Schema({
   username: { type: String, unique: true }, // values: email address, googleId, facebookId
   password: String,
   provider: String, // values: 'local', 'google', 'facebook'
-  email: String
+  email: String,
+  secret: String
 });
 
 userSchema.plugin(passportLocalMongoose, {
@@ -92,6 +94,27 @@ console.log(profile);
    }
 ));
 
+// //Facebook Strategy
+// passport.use(new FacebookStrategy({
+//         clientID: process.env.FACEBOOK_APP_ID,
+//         clientSecret: process.env.FACEBOOK_APP_SECRET,
+//         callbackURL: "http://localhost:3000/auth/facebook/secrets",
+//         profileFields: ["id", "email"]
+//     },
+//     function (accessToken, refreshToken, profile, cb) {
+//         User.findOrCreate(
+//           { username: profile.id },
+//           {
+//             provider: "facebook",
+//             email: profile._json.email
+//           },
+//           function (err, user) {
+//             return cb(err, user);
+//           }
+//         );
+//     }
+// ));
+
 app.get('/', (req, res) => {
   res.render('home');
 });
@@ -109,12 +132,7 @@ app.get('/auth/google/secrets',
     res.redirect('/secrets');
   });
 
-// SECTION 6: /auth/facebook GET route
-app.get("/auth/facebook",
-    passport.authenticate("facebook", {
-      scope: ["email"]
-    })
-);
+
 
 
 app.get('/login', (req, res) => {
@@ -126,11 +144,45 @@ app.get('/register', (req, res) => {
 });
 
 app.get("/secrets", function(req, res) {
+  User.find({"secret": {$ne: null}}, function(err, foundUsers){
+    if (err){
+      console.log(err);
+    } else {
+      if (foundUsers) {
+        res.render("secrets", {usersWithSecrets: foundUsers}); //pass in usersWithSecrets variable to foundUsers as value
+      }
+    }
+  });
+});
+
+
+
+app.get("/submit", function(req, res){
   if (req.isAuthenticated()) {
-    res.render("secrets");
+    res.render("submit");
   } else {
     res.redirect("/login");
   }
+});
+
+app.post("/submit", function(req, res){
+  const submittedSecret = req.body.secret;
+
+//Once the user is authenticated and their session gets saved, their user details are saved to req.user.
+  // console.log(req.user.id);
+
+  User.findById(req.user.id, function(err, foundUser){
+    if (err) {
+      console.log(err);
+    } else {
+      if (foundUser) {
+        foundUser.secret = submittedSecret;
+        foundUser.save(function(){
+          res.redirect("/secrets");
+        });
+      }
+    }
+  });
 });
 
 app.get("/logout", function(req, res){
